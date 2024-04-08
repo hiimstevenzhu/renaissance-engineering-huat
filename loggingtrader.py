@@ -1,6 +1,14 @@
 import json
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
-from typing import Any
+from typing import Any, List, Dict
+import numpy as np
+import pandas as pd
+import math
+# unsure about these libraries 
+import copy
+import random
+import collections
+from collections import defaultdict
 
 class Logger:
     def __init__(self) -> None:
@@ -107,12 +115,112 @@ class Logger:
 
 logger = Logger()
 
+# standardised global variables
+INF = int(1e9)
+empty_assets = {'AMETHYSTS': 0, 'STARFRUIT': 0}
+
 class Trader:
+    POS_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT':20}
+    position = copy.deepcopy(empty_assets)
+    volume_traded = copy.deepcopy(empty_assets)
     
-    def run(self, state: TradingState) -> tuple[dict[Symbol, list[Order]], int, str]:
-        result = {}
-        conversions = 0
-        trader_data = ""
+    def values_extract(self, order_dict: dict, buy=0):
+        tot_vol = 0
+        best_val = -1
+        
+        for ask, vol in order_dict.items():
+            if not buy:
+                vol *= -1 #quantities for selling are alw neg
+            tot_vol += vol
+            #if tot_vol > maxvol: #seems redundant to me, we sort alr, best_vall is always the last entry
+                #maxvol = vol
+            best_val = ask
+                
+        return tot_vol, best_val
+    
+    def compute_orders_ame(self, algo_bid: int, algo_ask: int, order_depth: OrderDepth):
+        # standardised
+        orders: list[Order] = []
+        product = 'AMETHYSTS'
+        pos_lim = self.POS_LIMIT[product]
+        
+        outstanding_sell = collections.OrderedDict(sorted(order_depth.sell_orders.items()))
+        outstanding_buy = collections.OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
+        
+        sell_vol, best_sell_price = self.values_extract(outstanding_sell)
+        buy_vol, best_buy_price = self.values_extract(outstanding_buy, 1)
+
+        cur_pos = self.position[product]
+        
+        
+        # market taking all outstanding sells below our arbitrage price
+        for ask, vol in outstanding_sell.items():
+            if (ask < algo_bid) or ((cur_pos < 0  and (ask == algo_bid))) and cur_pos < pos_lim:
+                order_amt = min(-vol, pos_lim - cur_pos)
+                cur_pos += order_amt
+                orders.append(Order(product, ask, order_amt))
+        
+        # making outstanding sells for the bots to trade on 
+        
+        # unsure of the value of this
+        undercut_b = best_buy_price +1
+        undercut_s = best_sell_price -1
+        
+        bid_price = min(undercut_b, algo_bid-1)
+        ask_price = max(undercut_s, algo_ask+1)
+        
+        if (cur_pos < pos_lim):
+            vol_tobuy = pos_lim-cur_pos
+            if cur_pos < 0:
+                # we have negative position, we want to stabilise inventory by making bid orders
+                orders.append(Order(product, min(undercut_b+1, algo_bid-1), vol_tobuy)) # this line is different - we dont further undercut our buys
+            elif cur_pos > 15:
+                orders.append(Order(product, min(undercut_b-1, algo_bid-1), vol_tobuy))
+            else:
+                orders.append(Order(product, bid_price, vol_tobuy))
+            cur_pos += vol_tobuy
+        
+        cur_pos = self.position[product]
+        
+        # market taking all outstanding buys above our arbitrage price
+        for bid, vol in outstanding_buy.items():
+            if (bid > algo_ask) or (cur_pos > 0 and (bid == algo_ask)) and cur_pos > -pos_lim:
+                order_amt = max(-vol, -pos_lim - cur_pos)
+                cur_pos += order_amt
+                orders.append(Order(product, bid, order_amt))
+        
+        if (cur_pos > -pos_lim):
+            vol_tosell = -pos_lim-cur_pos
+            if cur_pos > 0:
+                orders.append(Order(product, max(undercut_s-1, algo_ask+1), vol_tosell))
+            elif cur_pos < -15:
+                orders.append(Order(product, max(undercut_s+1, algo_ask+1), vol_tosell))
+            else:
+                orders.append(Order(product, ask_price, vol_tosell))    
+                
+        return orders
+        
+        
+    def run(self, state: TradingState):        
+        # base requirements
+        result = {'AMETHYSTS': [], 'STARFRUIT': []}
+        # We iterate through keys in the order depth to update algo's position in an asset
+        for key, val in state.position.items():
+            self.position[key] = val
+            print(f'{key} position: {val}')
+        print()
+        
+        timestamp = state.timestamp
+        # AMETHYSTS tend to be stable - we'll just implement simple market-making
+        ame_lb = ame_ub = 10000
+        ame_orders = self.compute_orders_ame(ame_lb, ame_ub, state.order_depths['AMETHYSTS'])
+        result['AMETHYSTS'] = ame_orders
+        
+        
+        
+        # STARFRUITS 
+        
+        '''
         for product in state.order_depths:
             order_depth: OrderDepth = state.order_depths[product]
             orders: List[Order] = []
@@ -124,6 +232,7 @@ class Trader:
                 best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
                 if int(best_ask) < acceptable_price:
                     print("BUY", str(-best_ask_amount) + "x", best_ask)
+                    # The line below specifies the actual act of buying/selling
                     orders.append(Order(product, best_ask, -best_ask_amount))
     
             if len(order_depth.buy_orders) != 0:
@@ -133,11 +242,9 @@ class Trader:
                     orders.append(Order(product, best_bid, -best_bid_amount))
             
             result[product] = orders
-    
+        '''
 		    # String value holding Trader state data required. 
 				# It will be delivered as TradingState.traderData on next execution.
-        
-				# Sample conversion request. Check more details below. 
-
-        logger.flush(state, result, conversions, trader_data)
-        return result, conversions, trader_data
+        traderData = "SAMPLE" 
+        logger.flush(state, result, None, traderData)
+        return result, None, traderData
