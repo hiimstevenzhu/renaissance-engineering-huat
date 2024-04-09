@@ -115,6 +115,8 @@ class Logger:
 
 logger = Logger()
 
+# ALGO CODE GOES HERE:
+
 # standardised global variables
 INF = int(1e9)
 empty_assets = {'AMETHYSTS': 0, 'STARFRUIT': 0}
@@ -124,6 +126,10 @@ class Trader:
     position = copy.deepcopy(empty_assets)
     volume_traded = copy.deepcopy(empty_assets)
     
+    #starfuit cache
+    starfruit_cache = []
+    starfruit_terms = 3
+    
     def values_extract(self, order_dict: dict, buy=0):
         tot_vol = 0
         best_val = -1
@@ -132,7 +138,7 @@ class Trader:
             if not buy:
                 vol *= -1 #quantities for selling are alw neg
             tot_vol += vol
-            #if tot_vol > maxvol: #seems redundant to me, we sort alr, best_vall is always the last entry
+            #if tot_vol > maxvol: #seems redundant to me, we sort alr, best_val is always the last entry
                 #maxvol = vol
             best_val = ask
                 
@@ -199,6 +205,65 @@ class Trader:
                 orders.append(Order(product, ask_price, vol_tosell))    
                 
         return orders
+    
+    def ar_starfruit(self):
+        coef = [0.2824, 0.3219, 0.3952]
+        intercept = 2.8132
+        next_price = intercept
+        for i, val in enumerate(self.starfruit_cache):
+            next_price += val * coef[i]
+        return int(round(next_price))
+    
+    def compute_orders_star(self, algo_bid: int, algo_ask: int, order_depth: OrderDepth):
+        # standardised
+        orders: list[Order] = []
+        product = 'STARFRUIT'
+        pos_lim = self.POS_LIMIT[product]
+        
+        outstanding_sell = collections.OrderedDict(sorted(order_depth.sell_orders.items()))
+        outstanding_buy = collections.OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
+        
+        sell_vol, best_sell_price = self.values_extract(outstanding_sell)
+        buy_vol, best_buy_price = self.values_extract(outstanding_buy, 1)
+
+        cur_pos = self.position[product]
+        
+        # market take outstanding sells
+        for ask, vol in outstanding_sell.items():
+            if (ask < algo_bid) or ((cur_pos < 0  and (ask == algo_bid))) and cur_pos < pos_lim:
+                order_amt = min(-vol, pos_lim - cur_pos)
+                cur_pos += order_amt
+                orders.append(Order(product, ask, order_amt))
+                
+        # undercutting for bids and asks
+        undercut_b = best_buy_price +1
+        undercut_s = best_sell_price -1
+        
+        bid_price = min(undercut_b, algo_bid-1)
+        ask_price = max(undercut_s, algo_ask+1)
+        
+        if cur_pos < pos_lim:
+            order_amt = pos_lim - cur_pos
+            orders.append(Order(product, bid_price, order_amt))
+            cur_pos += order_amt
+        
+        cur_pos = self.position[product]
+            
+        # market take outstanding buys
+        for bid, vol in outstanding_buy.items():
+            if (bid > algo_ask) or (cur_pos > 0 and (bid == algo_ask)) and cur_pos > -pos_lim:
+                order_amt = max(-vol, -pos_lim - cur_pos)
+                cur_pos += order_amt
+                orders.append(Order(product, bid, order_amt))
+        
+        if cur_pos > -pos_lim:
+            order_amt = -pos_lim-cur_pos
+            orders.append(Order(product, ask_price, order_amt))
+            cur_pos += order_amt
+                
+        return orders
+        
+        
         
         
     def run(self, state: TradingState):        
@@ -218,33 +283,24 @@ class Trader:
         
         
         
-        # STARFRUITS 
-        
-        '''
-        for product in state.order_depths:
-            order_depth: OrderDepth = state.order_depths[product]
-            orders: List[Order] = []
-            acceptable_price = 10  # Participant should calculate this value
-            print("Acceptable price : " + str(acceptable_price))
-            print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
-    
-            if len(order_depth.sell_orders) != 0:
-                best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
-                if int(best_ask) < acceptable_price:
-                    print("BUY", str(-best_ask_amount) + "x", best_ask)
-                    # The line below specifies the actual act of buying/selling
-                    orders.append(Order(product, best_ask, -best_ask_amount))
-    
-            if len(order_depth.buy_orders) != 0:
-                best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
-                if int(best_bid) > acceptable_price:
-                    print("SELL", str(best_bid_amount) + "x", best_bid)
-                    orders.append(Order(product, best_bid, -best_bid_amount))
+        # STARFRUITS
+        # we keep the last 3 prices
+        if len(self.starfruit_cache) == self.starfruit_terms:
+            self.starfruit_cache.pop(0)
+        s_vol, best_sell_star = self.values_extract(collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].sell_orders.items())))
+        b_vol, best_buy_star = self.values_extract(collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].buy_orders.items(), reverse=True)), 1)
+        self.starfruit_cache.append((best_buy_star+best_sell_star) / 2)
+        star_lb = -INF
+        star_ub = INF
+        if len(self.starfruit_cache) == self.starfruit_terms:
+            star_next_price = self.ar_starfruit()
+            star_lb = star_next_price-1
+            star_ub = star_next_price+1
+        star_orders = self.compute_orders_star(star_lb, star_ub, state.order_depths["STARFRUIT"])
+        result["STARFRUIT"] = star_orders
             
-            result[product] = orders
-        '''
-		    # String value holding Trader state data required. 
-				# It will be delivered as TradingState.traderData on next execution.
+		# String value holding Trader state data required. 
+		# It will be delivered as TradingState.traderData on next execution.
         traderData = "SAMPLE" 
         logger.flush(state, result, None, traderData)
         return result, None, traderData
