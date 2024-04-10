@@ -1,3 +1,5 @@
+# ROUND 1 BENCHMARK
+
 import json
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
 from typing import Any, List, Dict
