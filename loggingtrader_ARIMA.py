@@ -117,11 +117,26 @@ class Logger:
 
 logger = Logger()
 
+class SimpleARIMA:
+    def __init__(self, data):
+        self.data = data
+
+    def difference(self, d=1):
+        diff_data = np.diff(self.data, n=d)
+        return diff_data
+
+    def fit(self, p, d, q):
+        pass  # Placeholder for fitting the model
+
+    def forecast_next_value(self):
+        pass  # Placeholder for forecasting the next value
+
 # ALGO CODE GOES HERE:
 
 # standardised global variables
 INF = int(1e9)
 empty_assets = {'AMETHYSTS': 0, 'STARFRUIT': 0}
+
 
 class Trader:
     POS_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT':20}
@@ -208,13 +223,37 @@ class Trader:
                 
         return orders
     
-    def ar_starfruit(self):
-        coef = [0.2824, 0.3219, 0.3952]
-        intercept = 2.8132
-        next_price = intercept
-        for i, val in enumerate(self.starfruit_cache):
-            next_price += val * coef[i]
-        return int(round(next_price))
+    def arima_starfruit(self):        # NOT TESTED
+        data = self.starfruit_cache
+        model = SimpleARIMA(data)
+
+        # Example of differencing
+        diff_data = model.difference()
+        print("Differenced data:", diff_data)
+
+        # Example of fitting (placeholder)
+        model.fit(p=1, d=1, q=1)
+
+        # Example of forecasting (placeholder)
+        next_value = model.forecast_next_value()
+
+
+        #   ARIMA USING LIB
+        # # Initialize and fit the ARIMA model
+        # model = SimpleARIMA(self.starfruit_cache)
+        # model.fit(order=(1, 1, 1))  # Example order (p, d, q)
+
+        # # Forecast the next value
+        # next_value = model.forecast_next_value()
+        # return int(round(next_value))
+
+        #   THIS IS AR CODE
+        # coef = [0.2824, 0.3219, 0.3952]
+        # intercept = 2.8132
+        # next_price = intercept
+        # for i, val in enumerate(self.starfruit_cache):
+        #     next_price += val * coef[i]
+        # return int(round(next_price))
     
     def compute_orders_star(self, algo_bid: int, algo_ask: int, order_depth: OrderDepth):
         # standardised
@@ -295,7 +334,7 @@ class Trader:
         star_lb = -INF
         star_ub = INF
         if len(self.starfruit_cache) == self.starfruit_terms:
-            star_next_price = self.ar_starfruit()
+            star_next_price = self.arima_starfruit()
             star_lb = star_next_price-1
             star_ub = star_next_price+1
         star_orders = self.compute_orders_star(star_lb, star_ub, state.order_depths["STARFRUIT"])
