@@ -216,8 +216,8 @@ class Trader:
             next_price += val * coef[i]
         return int(round(next_price))
     
-    def ar_orchid(self, observation: Observation, midprice):
-        humidity = observation.humiidity
+    def ar_orchid(self, observation: ConversionObservation, midprice):
+        humidity = observation.humidity
         sunlight = observation.sunlight
         # calculate humidity coef
         if humidity >=60 and humidity <=80:
@@ -320,7 +320,7 @@ class Trader:
         s_vol_orc, best_sell_orc = self.values_extract(collections.OrderedDict(sorted(state.order_depths["ORCHIDS"].sell_orders.items())))
         b_vol_orc, best_buy_orc = self.values_extract(collections.OrderedDict(sorted(state.order_depths["ORCHIDS"].buy_orders.items(), reverse=True)), 1)
         orc_mid_price = (best_buy_orc+best_sell_orc) / 2
-        orc_next_price = self.ar_orchid(state.observations.conversionObservations['ORCHIDS'], orc_mid_price)
+        orc_next_price = self.ar_orchid(state.observations.conversionObservations["ORCHIDS"], orc_mid_price)
         orc_lb = orc_next_price-1
         orc_ub = orc_next_price+1
         orc_orders = self.compute_orders_regression(orc_lb, orc_ub, state, "ORCHIDS")
