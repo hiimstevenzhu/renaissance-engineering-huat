@@ -165,8 +165,8 @@ class Trader:
         product = 'AMETHYSTS'
         pos_lim = self.POS_LIMIT[product]
         
-        outstanding_sell = collections.OrderedDict(sorted(order_depth.sell_orders.items(), reverse=True)))
-        outstanding_buy = collections.OrderedDict(sorted(order_depth.buy_orders.items())
+        outstanding_sell = collections.OrderedDict(sorted(order_depth.sell_orders.items(), reverse=True))
+        outstanding_buy = collections.OrderedDict(sorted(order_depth.buy_orders.items()))
         
         sell_vol, best_sell_price = self.values_extract(outstanding_sell)
         buy_vol, best_buy_price = self.values_extract(outstanding_buy, 1)
