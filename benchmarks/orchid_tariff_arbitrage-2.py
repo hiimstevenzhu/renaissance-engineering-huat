@@ -121,16 +121,16 @@ logger = Logger()
 
 # standardised global variables
 INF = int(1e9)
-empty_assets = {'AMETHYSTS': 0, 'STARFRUIT': 0}
+empty_assets = {'AMETHYSTS': 0, 'STARFRUIT': 0, 'ORCHIDS': 0}
 
 class Trader:
-    POS_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT':20}
+    POS_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT':20, 'ORCHIDS':100}
     position = copy.deepcopy(empty_assets)
     volume_traded = copy.deepcopy(empty_assets)
     
     #starfuit cache
     starfruit_cache = []
-    starfruit_terms = 3
+    starfruit_terms = 4
     
     def values_extract(self, order_dict: dict, buy=0):
         tot_vol = 0
@@ -145,18 +145,6 @@ class Trader:
             best_val = ask
                 
         return tot_vol, best_val
-    
-    def weighted_avg(self, obuy:dict, osell:dict):
-        
-        total_vol = 0
-        total_price = 0
-        for price, vol in obuy.items():
-            total_vol += vol
-            total_price += price * vol
-        for price, vol in osell.items():
-            total_vol += vol*-1
-            total_price += price * (-vol)
-        return int(round(total_price/total_vol))
     
     def compute_orders_ame(self, algo_bid: int, algo_ask: int, order_depth: OrderDepth):
         # standardised
@@ -221,17 +209,39 @@ class Trader:
         return orders
     
     def ar_starfruit(self):
-        coef = [0.2824, 0.3219, 0.3952]
-        intercept = 2.8132
+        coef = [0.1921, 0.1957, 0.2627, 0.3461]
+        intercept = 17.3638 
         next_price = intercept
         for i, val in enumerate(self.starfruit_cache):
             next_price += val * coef[i]
         return int(round(next_price))
     
-    def compute_orders_star(self, algo_bid: int, algo_ask: int, order_depth: OrderDepth):
+    def lr_orchid(self, observation: Observation):
+        orc_ask_price = observation.askPrice
+        orc_bid_price = observation.bidPrice
+        humidity = observation.humidity
+        sunlight = observation.sunlight
+        # calculate humidity coef
+        if humidity >=60 and humidity <=80:
+            hum_coef = 1
+        elif humidity < 60:
+            hum_coef = 100/(100 -(60-humidity)/2.5)    #the 100/ already performs the inverse 1/ relation
+        else:
+            hum_coef = 100/(100-(humidity-80)/2.5)
+        # calculate sunlight coef
+        sun_coef = 1 + (2500-sunlight)/2500
+        
+        coef = [1.94501092, -0.15176051, 0.99491585] #humidity, sunlight, cur price
+        intercept = 4.248858749931287
+        next_ask_price = intercept + orc_ask_price*coef[2] + sun_coef*coef[1] + hum_coef*coef[0]
+        next_bid_price = intercept + orc_bid_price*coef[2] + sun_coef*coef[1] + hum_coef*coef[0]
+        return (next_bid_price, next_ask_price)
+
+    
+    def compute_orders_regression(self, algo_bid: int, algo_ask: int, state: TradingState, product: str):
         # standardised
+        order_depth = state.order_depths[product]
         orders: list[Order] = []
-        product = 'STARFRUIT'
         pos_lim = self.POS_LIMIT[product]
         
         outstanding_sell = collections.OrderedDict(sorted(order_depth.sell_orders.items()))
@@ -276,13 +286,69 @@ class Trader:
             cur_pos += order_amt
                 
         return orders
+    
+    def compute_orders_orchid(self, algo_bid: int, algo_ask: int, state: TradingState, product: str, observation: Observation):
+        # standardised
+        order_depth = state.order_depths[product]
+        orders: list[Order] = []
+        pos_lim = self.POS_LIMIT[product]
         
+        outstanding_sell = collections.OrderedDict(sorted(order_depth.sell_orders.items()))
+        outstanding_buy = collections.OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
         
+        sell_vol, best_sell_price = self.values_extract(outstanding_sell)
+        buy_vol, best_buy_price = self.values_extract(outstanding_buy, 1)
         
+        # undercutting for bids and asks
+        undercut_b = best_buy_price +1
+        # undercut_s = best_sell_price -1
         
+        #initialising friction costs
+        storage_price = 0.1
+        
+        #bid_price = min(undercut_b, algo_bid-1)
+        #ask_price = max(undercut_s, algo_ask+1)
+        
+        # longing arbitrage
+        cur_pos = self.position[product]
+        pred_bid = algo_bid - 1.6
+        algo_bid = algo_bid - observation.exportTariff - observation.transportFees
+        # market take outstanding sells
+        for ask, vol in outstanding_sell.items():
+            if (ask < algo_bid) or (cur_pos < 0 and (ask == algo_bid)) and cur_pos < pos_lim:
+                order_amt = max(vol, pos_lim - cur_pos)
+                cur_pos += order_amt
+                orders.append(Order(product, ask, order_amt))
+        
+        # shorting for the next long while we are on uptrend
+        if (cur_pos < pos_lim) and (algo_bid - observation.bidPrice > storage_price):
+            order_amt = max(vol, pos_lim - cur_pos)
+            cur_pos += order_amt
+            orders.append(Order(product, int(round(algo_bid)), order_amt))
+
+        
+        # shorting arbitrage
+        cur_pos = self.position[product]
+        pred_ask = algo_ask - 1.6
+        algo_ask = algo_ask + observation.importTariff + observation.transportFees
+        # market take outstanding buys
+        for bid, vol in outstanding_buy.items():
+            if (bid > algo_ask) or (cur_pos > 0 and (bid == algo_ask)) and cur_pos > -pos_lim:
+                order_amt = max(-vol, -pos_lim - cur_pos)
+                cur_pos += order_amt
+                orders.append(Order(product, bid, order_amt))
+
+        # longing for the next short while we are on the downtrend
+        if (cur_pos > -pos_lim) and (observation.askPrice > algo_ask) :
+            order_amt = -pos_lim-cur_pos
+            orders.append(Order(product, int(round(algo_ask)), order_amt))
+            cur_pos += order_amt
+                
+        return orders
+
     def run(self, state: TradingState):        
         # base requirements
-        result = {'AMETHYSTS': [], 'STARFRUIT': []}
+        result = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': []}
         # We iterate through keys in the order depth to update algo's position in an asset
         for key, val in state.position.items():
             self.position[key] = val
@@ -301,19 +367,38 @@ class Trader:
         # we keep the last 3 prices
         if len(self.starfruit_cache) == self.starfruit_terms:
             self.starfruit_cache.pop(0)
-        mid_price = self.weighted_avg(collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].buy_orders.items())), collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].sell_orders.items())))
-        self.starfruit_cache.append(mid_price)
+        s_vol, best_sell_star = self.values_extract(collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].sell_orders.items())))
+        b_vol, best_buy_star = self.values_extract(collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].buy_orders.items(), reverse=True)), 1)
+        self.starfruit_cache.append((best_buy_star+best_sell_star) / 2)
         star_lb = -INF
         star_ub = INF
         if len(self.starfruit_cache) == self.starfruit_terms:
             star_next_price = self.ar_starfruit()
             star_lb = star_next_price-1
             star_ub = star_next_price+1
-        star_orders = self.compute_orders_star(star_lb, star_ub, state.order_depths["STARFRUIT"])
+        star_orders = self.compute_orders_regression(star_lb, star_ub, state, "STARFRUIT")
         result["STARFRUIT"] = star_orders
+
+        # ORCHIDS
+        orc_next_bid, orc_next_ask = self.lr_orchid(state.observations.conversionObservations["ORCHIDS"])
+        orc_lb = orc_next_bid - 1.6 # replace aggression
+        orc_ub = orc_next_ask + 1.6 # replace aggression
+        orc_orders = self.compute_orders_orchid(orc_lb, orc_ub, state, "ORCHIDS", state.observations.conversionObservations["ORCHIDS"])
+        result["ORCHIDS"] = orc_orders
             
+        orchid_pos = self.position["ORCHIDS"]
+        conversions = 0
+        # if we are at the local minima, we convert our short position
+        if orc_next_ask > state.observations.conversionObservations["ORCHIDS"].askPrice and orchid_pos < 0:
+            conversions = -orchid_pos
+        
+        # if we are at local maxima, we convert the long position
+        storage_price = 0.1
+        if state.observations.conversionObservations["ORCHIDS"].bidPrice - orc_next_bid <= storage_price and orchid_pos > 0:
+            conversions = -orchid_pos
+
 		# String value holding Trader state data required. 
 		# It will be delivered as TradingState.traderData on next execution.
         traderData = "SAMPLE" 
-        logger.flush(state, result, None, traderData)
-        return result, None, traderData
+        logger.flush(state, result, conversions, traderData)
+        return result, conversions, traderData

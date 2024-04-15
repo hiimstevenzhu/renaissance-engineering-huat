@@ -1,3 +1,5 @@
+# ROUND 1 BENCHMARK
+
 import json
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
 from typing import Any, List, Dict
@@ -119,17 +121,17 @@ logger = Logger()
 
 # standardised global variables
 INF = int(1e9)
-empty_assets = {'AMETHYSTS': 0, 'STARFRUIT': 0}
+empty_assets = {'AMETHYSTS': 0, 'STARFRUIT': 0, 'ORCHIDS': 0}
 
 class Trader:
-    POS_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT':20}
+    POS_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT':20, 'ORCHIDS':100}
     position = copy.deepcopy(empty_assets)
     volume_traded = copy.deepcopy(empty_assets)
     
     #starfuit cache
-    starfruit_returns_cache = []
-    starfruit_returns_terms = 3
-    last_starfruit_price = 5051
+    starfruit_cache = []
+    starfruit_terms = 4
+
     
     def values_extract(self, order_dict: dict, buy=0):
         tot_vol = 0
@@ -144,20 +146,6 @@ class Trader:
             best_val = ask
                 
         return tot_vol, best_val
-    
-    def weighted_avg(self, obuy:dict, osell:dict):
-        
-        total_vol = 0
-        total_price = 0
-        for price, vol in obuy.items():
-            total_vol += vol
-            total_price += price * vol
-        for price, vol in osell.items():
-            total_vol += vol*-1
-            total_price += price * (-vol)
-        return int(round(total_price/total_vol))
-            
-        
     
     def compute_orders_ame(self, algo_bid: int, algo_ask: int, order_depth: OrderDepth):
         # standardised
@@ -221,18 +209,46 @@ class Trader:
                 
         return orders
     
-    def ar_starfruit_next_return(self):
-        coef = [-0.1891, -0.3970, -0.6581]
-        intercept = 2.2442
-        next_return = intercept
-        for i, val in enumerate(self.starfruit_returns_cache):
-            next_return += val * coef[i]
-        return next_return
+    def ar_starfruit(self):
+        coef = [0.1921, 0.1957, 0.2627, 0.3461]
+        intercept = 17.3638 
+        next_price = intercept
+        for i, val in enumerate(self.starfruit_cache):
+            next_price += val * coef[i]
+        return int(round(next_price))
     
-    def compute_orders_star(self, algo_bid: int, algo_ask: int, order_depth: OrderDepth):
+    def lr_orchid(self, observation: Observation):
+        orc_ask_price = observation.askPrice
+        orc_bid_price = observation.bidPrice
+        # orc_mid_price = (orc_ask_price+orc_bid_price)/2
+        # humidity = observation.humidity
+        # sunlight = observation.sunlight
+        
+        # # calculate humidity coef
+        # if 60 <= humidity <= 80:
+        #     hum_coef = 1
+        # else:
+        #     deviation = min(abs(humidity-60), abs(humidity-80))
+        #     drop = deviation/5 * 2
+        #     hum_coef = 1 * (100-drop)/100
+        
+        # # calculate sunlight coef
+        # sun_coef = 1 + (2500-sunlight)/2500
+        
+        # coef = [-0.34070384, -0.04198594,  0.99980238] #hum_coef, sun_coef, cur_price
+        # intercept = 0.585799733940803
+        # next_mid_price = intercept + hum_coef*coef[0] + sun_coef*coef[1] + orc_mid_price*coef[2]
+        # # TEST LINE
+        # next_mid_price = round(next_mid_price*4)/4
+        # next_bid_price = next_mid_price-0.75
+        # next_ask_price = next_mid_price+0.75
+
+        return (orc_bid_price, orc_ask_price)
+    
+    def compute_orders_regression(self, algo_bid: int, algo_ask: int, state: TradingState, product: str):
         # standardised
+        order_depth = state.order_depths[product]
         orders: list[Order] = []
-        product = 'STARFRUIT'
         pos_lim = self.POS_LIMIT[product]
         
         outstanding_sell = collections.OrderedDict(sorted(order_depth.sell_orders.items()))
@@ -277,13 +293,38 @@ class Trader:
             cur_pos += order_amt
                 
         return orders
+    
+    def compute_orders_orchid(self, algo_bid: int, algo_ask: int, state: TradingState, product: str, observation: Observation):
+        # standardised
+        order_depth = state.order_depths[product]
+        orders: list[Order] = []
+        pos_lim = self.POS_LIMIT[product]
         
+        outstanding_sell = collections.OrderedDict(sorted(order_depth.sell_orders.items(), reverse=True))
+        outstanding_buy = collections.OrderedDict(sorted(order_depth.buy_orders.items()))
         
+        sell_vol, best_sell_price = self.values_extract(outstanding_sell)
+        buy_vol, best_buy_price = self.values_extract(outstanding_buy, 1)
         
+        undercut_bid = best_buy_price + 0 #SET AT 0 UNTIL MORE INFO OUT
         
+        diff = (best_sell_price - best_buy_price) * 0.235
+        
+        undercut_ask = algo_ask + observation.importTariff + observation.transportFees + diff # diff
+
+        
+        cur_pos = self.position[product]
+        # just making asks
+        algo_ask = algo_ask
+        order_amt = -100
+        orders.append(Order(product, int(round(undercut_ask)), order_amt))
+        
+                
+        return orders, cur_pos
+
     def run(self, state: TradingState):        
         # base requirements
-        result = {'AMETHYSTS': [], 'STARFRUIT': []}
+        result = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': []}
         # We iterate through keys in the order depth to update algo's position in an asset
         for key, val in state.position.items():
             self.position[key] = val
@@ -300,36 +341,33 @@ class Trader:
         
         # STARFRUITS
         # we keep the last 3 prices
-        
-        if len(self.starfruit_returns_cache) == self.starfruit_returns_terms:
-            self.starfruit_returns_cache.pop(0)
-            
-        s_vol, best_sell_star = self.values_extract(collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].sell_orders.items(), reverse=True)))
-        b_vol, best_buy_star = self.values_extract(collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].buy_orders.items())), 1)
-        mid_price = (best_buy_star + best_sell_star) / 2
-        #mid_price = self.weighted_avg(collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].buy_orders.items())), collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].sell_orders.items())))
-        cur_returns = mid_price/self.last_starfruit_price
-        self.starfruit_returns_cache.append(cur_returns)
-        self.last_starfruit_price = mid_price
+        if len(self.starfruit_cache) == self.starfruit_terms:
+            self.starfruit_cache.pop(0)
+        s_vol, best_sell_star = self.values_extract(collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].sell_orders.items())))
+        b_vol, best_buy_star = self.values_extract(collections.OrderedDict(sorted(state.order_depths["STARFRUIT"].buy_orders.items(), reverse=True)), 1)
+        self.starfruit_cache.append((best_buy_star+best_sell_star) / 2)
         star_lb = -INF
         star_ub = INF
-        '''
         if len(self.starfruit_cache) == self.starfruit_terms:
             star_next_price = self.ar_starfruit()
             star_lb = star_next_price-1
             star_ub = star_next_price+1
-        '''
-        if len(self.starfruit_returns_cache) == self.starfruit_returns_terms:
-            star_next_return = self.ar_starfruit_next_return()
-            star_lb = round(mid_price*star_next_return) - 1
-            star_ub = round(mid_price*star_next_return) + 1
-            
-            
-        star_orders = self.compute_orders_star(star_lb, star_ub, state.order_depths["STARFRUIT"])
+        star_orders = self.compute_orders_regression(star_lb, star_ub, state, "STARFRUIT")
         result["STARFRUIT"] = star_orders
-            
+
+        # ORCHIDS
+        orc_next_bid, orc_next_ask = self.lr_orchid(state.observations.conversionObservations["ORCHIDS"])
+        orc_lb = orc_next_bid
+        orc_ub = orc_next_ask 
+        orc_orders, orchid_pos = self.compute_orders_orchid(orc_lb, orc_ub, state, "ORCHIDS", state.observations.conversionObservations["ORCHIDS"])
+        result["ORCHIDS"] = orc_orders
+        
+        
+        orchid_pos = self.position['ORCHIDS']
+        conversions = -orchid_pos
+
 		# String value holding Trader state data required. 
 		# It will be delivered as TradingState.traderData on next execution.
         traderData = "SAMPLE" 
-        logger.flush(state, result, None, traderData)
-        return result, None, traderData
+        logger.flush(state, result, conversions, traderData)
+        return result, conversions, traderData
