@@ -10,7 +10,7 @@ Position = int
 UserId = str
 ObservationValue = int
 
-
+# just for the specific asset
 class Listing:
 
     def __init__(self, symbol: Symbol, product: Product, denomination: Product):
@@ -18,7 +18,7 @@ class Listing:
         self.product = product
         self.denomination = denomination
         
-                 
+# for general conversion - but personally dont think this is ever worth it                 
 class ConversionObservation:
 
     def __init__(self, bidPrice: float, askPrice: float, transportFees: float, exportTariff: float, importTariff: float, sunlight: float, humidity: float):
@@ -30,7 +30,7 @@ class ConversionObservation:
         self.sunlight = sunlight
         self.humidity = humidity
         
-
+# to aid in conversions, can essentially ignore as well
 class Observation:
 
     def __init__(self, plainValueObservations: Dict[Product, ObservationValue], conversionObservations: Dict[Product, ConversionObservation]) -> None:
@@ -54,14 +54,14 @@ class Order:
     def __repr__(self) -> str:
         return "(" + self.symbol + ", " + str(self.price) + ", " + str(self.quantity) + ")"
     
-
+# the representation for the order book on the previous tick, tells us sell/buy orders and the amount for each 
 class OrderDepth:
 
     def __init__(self):
         self.buy_orders: Dict[int, int] = {}
         self.sell_orders: Dict[int, int] = {}
 
-
+# this class represents each type of trade being made, be it market or yours
 class Trade:
 
     def __init__(self, symbol: Symbol, price: int, quantity: int, buyer: UserId=None, seller: UserId=None, timestamp: int=0) -> None:
@@ -78,7 +78,7 @@ class Trade:
     def __repr__(self) -> str:
         return "(" + self.symbol + ", " + self.buyer + " << " + self.seller + ", " + str(self.price) + ", " + str(self.quantity) + ", " + str(self.timestamp) + ")"
 
-
+# the complete data for the previous tick - has order depth, timestamp, 
 class TradingState(object):
 
     def __init__(self,
@@ -88,7 +88,7 @@ class TradingState(object):
                  order_depths: Dict[Symbol, OrderDepth],
                  own_trades: Dict[Symbol, List[Trade]],
                  market_trades: Dict[Symbol, List[Trade]],
-                 position: Dict[Product, Position],
+                 position: Dict[Product, Position], #the current position the player holds in the product
                  observations: Observation):
         self.traderData = traderData
         self.timestamp = timestamp
