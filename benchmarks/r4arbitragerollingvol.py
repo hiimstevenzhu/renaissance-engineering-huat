@@ -135,7 +135,7 @@ class Trader:
     hold_gb = 0
     
     # coconuts cache
-    day = 3
+    day = 4
     coc_vol = 0.0001013965
     
     def values_extract(self, order_dict: dict, buy=0):
@@ -322,7 +322,26 @@ class Trader:
                 
         return orders, conversion
     
-    def compute_orders_basket(self, order_depth: OrderDepth):
+    def compute_orders_basket(self, order_depth: OrderDepth, state: TradingState):
+        # gb
+        rhianna_sell = 1
+        rhianna_buy = 1
+        # roses
+        rihanna_rose = "NONE"
+        if "GIFT_BASKET" in state.market_trades:
+            for i in state.market_trades['GIFT_BASKET']:
+                    if i.buyer == 'Rhianna':
+                        rhianna_buy = 1
+                    if i.seller == 'Rhianna':
+                        rhianna_sell = 1
+        if 'ROSES' in state.market_trades:
+                for i in state.market_trades['ROSES']:
+                    if i.buyer == 'Rhianna':
+                        rihanna_rose = 'LONG' 
+                        print('RIHANNA LONG')
+                    if i.seller == 'Rhianna':
+                        rihanna_rose = 'SHORT'
+                        print('RIHANNA SHORT')
         premium = 379.5
         sd = 76.4
         straw = 'STRAWBERRIES'
@@ -349,56 +368,56 @@ class Trader:
 
 
 
-        trade_at = 0.2
-        closing_zscore_change_threshold = 0.2
+        trade_at = 0.10
+        closing_zscore_change_threshold = 0.10
         cutting = -1
         gb_cutting = -1
         
         price_diff = mid_price['GIFT_BASKET'] - mid_price['CHOCOLATE']*4 - mid_price['STRAWBERRIES']*6 - mid_price['ROSES'] - premium
         zscore = (price_diff/sd) 
+        print(f"gb zscore is {zscore}, price_diff is {price_diff}")
         
-        
-        # handle exits first
-        if self.prev_basket_zscore != 0: #we're holding position -> for directional, just ensure prev_basket_score is 0
-            if zscore - self.prev_basket_zscore > closing_zscore_change_threshold:
-                # we have an increase in zscore, we can short
-                gb_diff = -58 - positions[gb]
-                straw_diff = -gb_diff * 6
-                choc_diff = -gb_diff * 4
-                rose_diff = -gb_diff
-                for ask, vol in osell[gb].items():
-                    if ask < worst_sell[gb]:
-                        orders[gb].append(Order(gb, ask, vol))
-                        gb_diff -= vol
-                orders[gb].append(Order(gb, worst_buy[gb]-gb_cutting, gb_diff))
-                orders[straw].append(Order(straw, worst_sell[straw]+cutting, straw_diff))
-                orders[choc].append(Order(choc, worst_sell[choc]+cutting, choc_diff))
-                orders[roses].append(Order(roses, worst_sell[roses]+cutting, rose_diff))
-                self.prev_basket_zscore = 0
+        # # handle exits first
+        # if self.prev_basket_zscore != 0: #we're holding position -> for directional, just ensure prev_basket_score is 0
+        #     if zscore - self.prev_basket_zscore > closing_zscore_change_threshold:
+        #         # we have an increase in zscore, we can short
+        #         gb_diff = -58 - positions[gb]
+        #         straw_diff = -gb_diff * 6
+        #         choc_diff = -gb_diff * 4
+        #         rose_diff = -gb_diff
+        #         for ask, vol in osell[gb].items():
+        #             if ask < worst_sell[gb]:
+        #                 orders[gb].append(Order(gb, ask, vol))
+        #                 gb_diff -= vol
+        #         orders[gb].append(Order(gb, worst_buy[gb]-gb_cutting, gb_diff))
+        #         orders[straw].append(Order(straw, worst_sell[straw]+cutting, straw_diff))
+        #         orders[choc].append(Order(choc, worst_sell[choc]+cutting, choc_diff))
+        #         orders[roses].append(Order(roses, worst_sell[roses]+cutting, rose_diff))
+        #         self.prev_basket_zscore = 0
 
                 
-            elif zscore - self.prev_basket_zscore < -closing_zscore_change_threshold:
-                gb_diff =  58 - positions[gb]
-                straw_diff = -gb_diff * 6
-                choc_diff = -gb_diff * 4
-                rose_diff = -gb_diff
-                for bid, vol in obuy[gb].items():
-                    if bid > worst_buy[gb]:
-                        orders[gb].append(Order(gb, bid, -vol))
-                        gb_diff += vol
-                orders[gb].append(Order(gb, worst_sell[gb]+gb_cutting, gb_diff))
-                orders[straw].append(Order(straw, worst_buy[straw]-cutting, straw_diff))
-                orders[choc].append(Order(choc, worst_buy[choc]-cutting, choc_diff))
-                orders[roses].append(Order(roses, worst_buy[roses]-cutting, rose_diff))
-                self.prev_basket_zscore = 0
+        #     elif zscore - self.prev_basket_zscore < -closing_zscore_change_threshold:
+        #         gb_diff =  58 - positions[gb]
+        #         straw_diff = -gb_diff * 6
+        #         choc_diff = -gb_diff * 4
+        #         rose_diff = -gb_diff
+        #         for bid, vol in obuy[gb].items():
+        #             if bid > worst_buy[gb]:
+        #                 orders[gb].append(Order(gb, bid, -vol))
+        #                 gb_diff += vol
+        #         orders[gb].append(Order(gb, worst_sell[gb]+gb_cutting, gb_diff))
+        #         orders[straw].append(Order(straw, worst_buy[straw]-cutting, straw_diff))
+        #         orders[choc].append(Order(choc, worst_buy[choc]-cutting, choc_diff))
+        #         orders[roses].append(Order(roses, worst_buy[roses]-cutting, rose_diff))
+        #         self.prev_basket_zscore = 0
 
                 
                 
         
         # entry for z-score
-        if zscore > trade_at:
+        if zscore > trade_at and rhianna_sell:
             # overvalued, short gb long rest
-            gb_diff = -58 - positions[gb]
+            gb_diff = -60 - positions[gb]
             straw_diff = -gb_diff * 6
             choc_diff = -gb_diff * 4
             rose_diff = -gb_diff
@@ -407,13 +426,13 @@ class Trader:
                     orders[gb].append(Order(gb, bid, -vol))
                     gb_diff += vol
             orders[gb].append(Order(gb, worst_buy[gb]-gb_cutting, gb_diff))
-            orders[straw].append(Order(straw, worst_sell[straw]+cutting, straw_diff))
-            orders[choc].append(Order(choc, worst_sell[choc]+cutting, choc_diff))
-            orders[roses].append(Order(roses, worst_sell[roses]+cutting, rose_diff))
+            # orders[straw].append(Order(straw, worst_sell[straw]+cutting, straw_diff))
+            # orders[choc].append(Order(choc, worst_sell[choc]+cutting, choc_diff))
+            # orders[roses].append(Order(roses, worst_sell[roses]+cutting, rose_diff))
             # hold our zscore for exit
-        elif zscore < -trade_at:
+        elif zscore < -trade_at and rhianna_buy:
             # undervalued, long gb short rest
-            gb_diff = 58 - positions[gb]
+            gb_diff = 60 - positions[gb]
             straw_diff = -gb_diff * 6
             choc_diff = -gb_diff * 4
             rose_diff = -gb_diff
@@ -422,16 +441,33 @@ class Trader:
                     orders[gb].append(Order(gb, ask, vol))
                     gb_diff -= vol
             orders[gb].append(Order(gb, worst_sell[gb]+gb_cutting, gb_diff))
-            orders[straw].append(Order(straw, worst_buy[straw]-cutting, straw_diff))
-            orders[choc].append(Order(choc, worst_buy[choc]-cutting, choc_diff))
-            orders[roses].append(Order(roses, worst_buy[roses]-cutting, rose_diff))
+            # orders[straw].append(Order(straw, worst_buy[straw]-cutting, straw_diff))
+            # orders[choc].append(Order(choc, worst_buy[choc]-cutting, choc_diff))
+            # orders[roses].append(Order(roses, worst_buy[roses]-cutting, rose_diff))
             # hold our zscore for exit
 
+        if rihanna_rose == 'LONG':
+            vol = self.POS_LIMIT['ROSES'] - self.position['ROSES']
+            orders[roses].append(Order(roses, worst_sell['ROSES'], vol))
+        if rihanna_rose == 'SHORT':
+            vol = - self.POS_LIMIT['ROSES'] - self.position['ROSES']
+            orders[roses].append(Order(roses, worst_buy['ROSES'], vol))
    
         
         return orders
     
-    def compute_orders_coconuts(self, order_depth: OrderDepth, timestamp: int):
+    def compute_orders_coconuts(self, order_depth: OrderDepth, timestamp: int, state: TradingState):
+        raj_buy = 0
+        rhianna_sell = 0
+        if 'COCONUT' in state.market_trades:
+                for i in state.market_trades['COCONUT']:
+                    if i.buyer == 'Rhianna':
+                        raj_buy = 1
+                    if i.seller == 'Raj':
+                        rhianna_sell = 1
+        
+        coc_res = raj_buy - rhianna_sell # where + means we long, 0 means we dont do anything, - we short
+        
         premium = 637.63
         coc = 'COCONUT'
         cou = 'COCONUT_COUPON'
@@ -481,7 +517,14 @@ class Trader:
         
         
         # COCONUTS
-        
+        # using coc_res to full swing, 1 is buy, -1 is sell
+        # coc_pos = self.position['COCONUT']
+        # coc_lim = self.POS_LIMIT['COCONUT']
+        # coc_diff = coc_lim - coc_pos
+        # if coc_res == 1:
+        #     orders[coc].append(Order(coc, worst_sell[coc], coc_diff))
+        # elif coc_res == -1:
+        #     orders[coc].append(Order(coc, worst_buy[coc], coc_diff))
         
         return orders
         
@@ -546,14 +589,14 @@ class Trader:
         
         # BASKET GROUP - LEADING INDICATOR
         if 'GIFT_BASKET' in state.order_depths.keys() and 'ROSES' in state.order_depths.keys() and 'CHOCOLATE' in state.order_depths.keys() and 'STRAWBERRIES' in state.order_depths.keys():
-            basket_orders = self.compute_orders_basket(state.order_depths)
+            basket_orders = self.compute_orders_basket(state.order_depths, state)
             result['GIFT_BASKET'] = basket_orders['GIFT_BASKET']
             result['ROSES'] = basket_orders['ROSES']
             result['STRAWBERRIES'] = basket_orders['STRAWBERRIES']
             result['CHOCOLATE'] = basket_orders['CHOCOLATE']
             
         if 'COCONUT' in state.order_depths.keys():
-            coconut_orders = self.compute_orders_coconuts(state.order_depths, timestamp)
+            coconut_orders = self.compute_orders_coconuts(state.order_depths, timestamp, state)
             result['COCONUT'] = coconut_orders['COCONUT']
             result['COCONUT_COUPON'] = coconut_orders['COCONUT_COUPON']
         
