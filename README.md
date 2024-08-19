@@ -5,13 +5,13 @@ A really exciting experience. 2nd in Singapore, 63rd global.
 Core members:
 
 Code writers:
-Steven Zhu (hiimstevenzhu)
-Asher Tam (ashertm)
-Ashish Chugh (ayyshish)
+- Steven Zhu (hiimstevenzhu)
+- Asher Tam (ashertm)
+- Ashish Chugh (ayyshish)
 
 Manual round solvers:
-Claire Chu
-Lokeshh Sampath
+- Claire Chu
+- Lokeshh Sampath
 
 # Required libraries:
 
